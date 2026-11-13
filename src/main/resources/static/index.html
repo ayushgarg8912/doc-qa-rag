@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Document Q&amp;A — RAG with Spring AI &amp; pgvector</title>
+<style>
+    * { box-sizing: border-box; }
+    body {
+        margin: 0; font-family: "Segoe UI", system-ui, -apple-system, Arial, sans-serif;
+        background: #f4f6f8; color: #1c2530;
+    }
+    header {
+        background: linear-gradient(120deg, #0b3d2e, #137a4d);
+        color: #fff; padding: 28px 20px; text-align: center;
+    }
+    header h1 { margin: 0 0 6px; font-size: 26px; }
+    header p { margin: 0; opacity: .85; font-size: 14px; }
+    main { max-width: 860px; margin: 24px auto 48px; padding: 0 16px; }
+    .card {
+        background: #fff; border: 1px solid #e2e8ee; border-radius: 12px;
+        padding: 20px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(16,42,30,.06);
+    }
+    .card h2 { margin: 0 0 12px; font-size: 18px; }
+    .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+    input[type="file"] { flex: 1 1 260px; padding: 8px; border: 1px solid #cbd5dd; border-radius: 8px; background: #fbfcfd; }
+    textarea {
+        width: 100%; min-height: 76px; resize: vertical; padding: 10px 12px;
+        border: 1px solid #cbd5dd; border-radius: 8px; font: inherit;
+    }
+    button {
+        background: #137a4d; color: #fff; border: 0; border-radius: 8px;
+        padding: 10px 18px; font-size: 15px; cursor: pointer;
+    }
+    button:hover { background: #0f6841; }
+    button:disabled { background: #9db8ab; cursor: wait; }
+    button.secondary { background: #eef3f0; color: #14532d; border: 1px solid #cfe0d6; }
+    .status { margin-top: 10px; font-size: 14px; min-height: 20px; }
+    .ok { color: #137a4d; }
+    .err { color: #b3261e; white-space: pre-wrap; }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid #edf1f4; }
+    th { color: #5b6b78; font-weight: 600; }
+    .empty { color: #71808d; font-size: 14px; }
+    #answer {
+        white-space: pre-wrap; line-height: 1.55; background: #f7faf8;
+        border: 1px solid #e0eae3; border-radius: 8px; padding: 14px; min-height: 54px;
+    }
+    .sources { margin-top: 10px; font-size: 13.5px; color: #43536a; }
+    .chip {
+        display: inline-block; background: #e7f2ec; color: #14532d; border-radius: 999px;
+        padding: 3px 10px; margin: 2px 4px 2px 0; font-size: 12.5px;
+    }
+    footer { text-align: center; color: #8593a0; font-size: 12.5px; padding-bottom: 28px; }
+</style>
+</head>
+<body>
+<header>
+    <h1>Document Q&amp;A — RAG with Spring AI &amp; pgvector</h1>
+    <p>Upload documents, then ask questions — answers come only from your documents.</p>
+</header>
+
+<main>
+    <!-- Upload -->
+    <section class="card">
+        <h2>1. Upload a document</h2>
+        <div class="row">
+            <input type="file" id="fileInput" accept=".pdf,.txt,.md">
+            <button id="uploadBtn" onclick="upload()">Upload</button>
+        </div>
+        <div class="status" id="uploadStatus"></div>
+    </section>
+
+    <!-- Documents -->
+    <section class="card">
+        <h2>2. Uploaded documents</h2>
+        <div id="docList"><p class="empty">Loading…</p></div>
+        <div class="row" style="margin-top:12px">
+            <button class="secondary" onclick="loadDocs()">Refresh list</button>
+        </div>
+    </section>
+
+    <!-- Ask -->
+    <section class="card">
+        <h2>3. Ask a question</h2>
+        <textarea id="question" placeholder="e.g. What does the document say about refunds?"></textarea>
+        <div class="row" style="margin-top:10px">
+            <button id="askBtn" onclick="ask()">Ask</button>
+        </div>
+        <div class="status" id="askStatus"></div>
+        <h2 style="margin-top:16px">Answer</h2>
+        <div id="answer">Your answer will appear here.</div>
+        <div class="sources" id="sources"></div>
+    </section>
+</main>
+
+<footer>Spring Boot · Spring AI · Local Transformers embeddings · pgvector · Groq/OpenAI chat</footer>
+
+<script>
+const $ = id => document.getElementById(id);
+
+async function upload() {
+    const input = $("fileInput");
+    const status = $("uploadStatus");
+    if (!input.files.length) {
+        status.textContent = "Please choose a .pdf, .txt or .md file first.";
+        status.className = "status err";
+        return;
+    }
+    const btn = $("uploadBtn");
+    btn.disabled = true;
+    status.textContent = "Uploading, parsing and embedding…";
+    status.className = "status";
+    try {
+        const form = new FormData();
+        form.append("file", input.files[0]);
+        const res = await fetch("/api/documents/upload", { method: "POST", body: form });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || ("HTTP " + res.status));
+        status.textContent = "Uploaded " + data.fileName + " — " + data.chunks + " chunks embedded.";
+        status.className = "status ok";
+        input.value = "";
+        loadDocs();
+    } catch (e) {
+        status.textContent = "Upload failed: " + e.message;
+        status.className = "status err";
+    } finally {
+        btn.disabled = false;
+    }
+}
+
+async function loadDocs() {
+    const box = $("docList");
+    try {
+        const res = await fetch("/api/documents");
+        const docs = await res.json();
+        if (!res.ok) throw new Error(docs.error || ("HTTP " + res.status));
+        if (!docs.length) {
+            box.innerHTML = "";
+            const p = document.createElement("p");
+            p.className = "empty";
+            p.textContent = "No documents uploaded yet.";
+            box.appendChild(p);
+            return;
+        }
+        const table = document.createElement("table");
+        const head = document.createElement("tr");
+        ["File", "Chunks", "Uploaded"].forEach(h => {
+            const th = document.createElement("th"); th.textContent = h; head.appendChild(th);
+        });
+        table.appendChild(head);
+        docs.forEach(d => {
+            const tr = document.createElement("tr");
+            const f = document.createElement("td"); f.textContent = d.fileName;
+            const c = document.createElement("td"); c.textContent = d.chunks;
+            const t = document.createElement("td"); t.textContent = new Date(d.uploadedAt).toLocaleString();
+            tr.append(f, c, t);
+            table.appendChild(tr);
+        });
+        box.innerHTML = "";
+        box.appendChild(table);
+    } catch (e) {
+        box.innerHTML = "";
+        const p = document.createElement("p");
+        p.className = "empty err";
+        p.textContent = "Could not load documents: " + e.message;
+        box.appendChild(p);
+    }
+}
+
+async function ask() {
+    const q = $("question").value.trim();
+    const status = $("askStatus");
+    const answerBox = $("answer");
+    const sourcesBox = $("sources");
+    if (!q) {
+        status.textContent = "Type a question first.";
+        status.className = "status err";
+        return;
+    }
+    const btn = $("askBtn");
+    btn.disabled = true;
+    status.textContent = "Searching your documents and asking the model…";
+    status.className = "status";
+    sourcesBox.innerHTML = "";
+    try {
+        const res = await fetch("/api/chat/ask", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ question: q })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || ("HTTP " + res.status));
+        answerBox.textContent = data.answer;
+        status.textContent = "";
+        if (data.sources && data.sources.length) {
+            const label = document.createElement("span");
+            label.textContent = "Sources: ";
+            sourcesBox.appendChild(label);
+            data.sources.forEach(s => {
+                const chip = document.createElement("span");
+                chip.className = "chip";
+                chip.textContent = s;
+                sourcesBox.appendChild(chip);
+            });
+        }
+    } catch (e) {
+        answerBox.textContent = "Something went wrong.";
+        status.textContent = "Error: " + e.message;
+        status.className = "status err";
+    } finally {
+        btn.disabled = false;
+    }
+}
+
+loadDocs();
+</script>
+</body>
+</html>

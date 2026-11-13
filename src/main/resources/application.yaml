@@ -1,0 +1,49 @@
+server:
+  port: ${PORT:8080}
+
+spring:
+  application:
+    name: doc-qa-rag
+
+  # PostgreSQL (with pgvector). Defaults match docker-compose.yml.
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/docqa}
+    username: ${SPRING_DATASOURCE_USERNAME:docqa}
+    password: ${SPRING_DATASOURCE_PASSWORD:docqa}
+
+  servlet:
+    multipart:
+      max-file-size: 20MB
+      max-request-size: 20MB
+
+  ai:
+    model:
+      # Chat comes from the OpenAI-compatible API (OpenAI, Groq, ...).
+      chat: openai
+      # Embeddings are computed locally by the Transformers (ONNX) model,
+      # so no embedding API / key is required (Groq has no embeddings API).
+      embedding: transformers
+
+    openai:
+      # Point this at any OpenAI-compatible endpoint, e.g. Groq:
+      #   OPENAI_BASE_URL=https://api.groq.com/openai/v1
+      base-url: ${OPENAI_BASE_URL:https://api.openai.com}
+      # Placeholder default lets the app start (and /api/health work) without a key;
+      # chat calls will fail cleanly with a 502 until a real key is provided.
+      api-key: ${OPENAI_API_KEY:demo-key-not-set}
+      chat:
+        options:
+          model: ${AI_MODEL:gpt-4o-mini}
+          temperature: 0.3
+
+    vectorstore:
+      pgvector:
+        initialize-schema: true
+        # all-MiniLM-L6-v2 (Transformers) produces 384-dimensional vectors.
+        dimensions: 384
+        index-type: HNSW
+        distance-type: COSINE_DISTANCE
+
+logging:
+  level:
+    com.ayushgarg.docqa: INFO
