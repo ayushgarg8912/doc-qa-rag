@@ -40,7 +40,10 @@ as the chat model**: OpenRouter serves NVIDIA's `nvidia/nemotron-3-embed-1b:free
 embedding model for free, so one free OpenRouter key powers the whole app. The
 vectors are **2048-dimensional**, which is why the pgvector store is configured
 with `dimensions: 2048` (override with `EMBEDDING_DIMENSIONS` if you switch to
-a different embedding model).
+a different embedding model). No vector index is created (`index-type: NONE`):
+pgvector's HNSW index supports at most 2000 dimensions and this model emits
+2048, so similarity search uses an exact sequential scan — fine for the small
+document collections this app targets.
 
 > **Why not a local embedding model?** An earlier version embedded documents
 > in-process with a local ONNX model (`all-MiniLM-L6-v2` via Spring AI
