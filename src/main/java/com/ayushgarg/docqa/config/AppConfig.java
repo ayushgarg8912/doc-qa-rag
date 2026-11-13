@@ -9,9 +9,10 @@ import org.springframework.context.annotation.Configuration;
  * Shared AI beans.
  *
  * The {@link ChatClient} talks to whichever OpenAI-compatible chat API is
- * configured (see OPENAI_BASE_URL / AI_MODEL), e.g. Groq's free tier.
- * Embeddings are NOT configured here: Spring AI's Transformers starter
- * provides a local ONNX EmbeddingModel automatically.
+ * configured (see OPENAI_BASE_URL / AI_MODEL). Embeddings are NOT configured
+ * here either: the OpenAI starter provides the EmbeddingModel automatically,
+ * using the same API key/base URL and the model set in application.yaml
+ * (EMBEDDING_MODEL).
  */
 @Configuration
 public class AppConfig {

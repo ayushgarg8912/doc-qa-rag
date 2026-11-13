@@ -19,33 +19,35 @@ which makes answers accurate, grounded and traceable to a source file.
   Upload ─────► │  DocumentService                                               │
  (PDF/TXT/MD)   │   1. Parse text (PDFBox reader for PDFs)                       │
                 │   2. Split with TokenTextSplitter (~512-token chunks)          │
-                │   3. Embed chunks ──► TransformersEmbeddingModel (local ONNX)  │
+                │   3. Embed chunks ──► Embedding API (OpenRouter, remote)       │
                 │   4. Store vectors + metadata ──────────────┐                  │
                 │                                             ▼                  │
                 │                                    PostgreSQL + pgvector       │
-                │                                    (vector_store, 384 dims)    │
+                │                                    (vector_store, 2048 dims)   │
   Question ───► │  ChatService                                                   │
-                │   1. Embed the question (same local model)                     │
+                │   1. Embed the question (same embedding API)                   │
                 │   2. Similarity search (topK = 4) ◄───────────┘                │
                 │   3. Build a grounded prompt (context + question)              │
-                │   4. Call the chat model ──► OpenAI-compatible API (Groq…)     │
+                │   4. Call the chat model ──► OpenAI-compatible API (OpenRouter)│
                 │   5. Return { answer, sources[] }                              │
                 └──────────────────────────────────────────────────────────────────┘
 ```
 
-### Why embeddings are local (and free)
+### Embeddings: remote and free (via OpenRouter)
 
-Groq's free tier is great for chat, but **Groq has no embeddings API**. So this
-project computes embeddings **locally, in-process**, with Spring AI's Transformers
-(ONNX) support and the `all-MiniLM-L6-v2` model — no API key, no per-call cost,
-and document text never leaves your machine for embedding. The vectors are
-**384-dimensional**, which is why the pgvector store is configured with
-`dimensions: 384`.
+Embeddings come from the **same OpenAI-compatible API — and the same API key —
+as the chat model**: OpenRouter serves NVIDIA's `nvidia/nemotron-3-embed-1b:free`
+embedding model for free, so one free OpenRouter key powers the whole app. The
+vectors are **2048-dimensional**, which is why the pgvector store is configured
+with `dimensions: 2048` (override with `EMBEDDING_DIMENSIONS` if you switch to
+a different embedding model).
 
-Only the **chat** model needs an API key — and a **free Groq key** is enough.
-
-> First start downloads the ~90 MB ONNX embedding model from Hugging Face and
-> caches it; later starts are fast and work offline for embeddings.
+> **Why not a local embedding model?** An earlier version embedded documents
+> in-process with a local ONNX model (`all-MiniLM-L6-v2` via Spring AI
+> Transformers/DJL). That model (~90 MB) plus the DJL/ONNX native runtime did
+> not fit in the 512 MB RAM of free-tier hosting (Render Free) — the app was
+> OOM-killed at startup. Calling a remote embeddings API keeps the app small
+> and light enough for free tiers.
 
 ---
 
@@ -64,8 +66,10 @@ Only the **chat** model needs an API key — and a **free Groq key** is enough.
   ask box, answer + sources) served from the app itself.
 - ⚠️ **Clean JSON errors** — `400` for bad input/unsupported files, `502` for
   AI/database failures with readable messages, never stack traces.
-- 🔑 **Zero-config embeddings** — no embedding API key anywhere; only the chat
-  key is configured, entirely through environment variables.
+- 🔑 **One key for everything** — a single API key (configured entirely through
+  environment variables) serves both the chat model and the embeddings model.
+- 🪶 **Free-tier friendly** — no local ML model in the process, so the app runs
+  comfortably in 512 MB of RAM.
 
 ## Tech stack
 
@@ -73,8 +77,8 @@ Only the **chat** model needs an API key — and a **free Groq key** is enough.
 |--------------|------------|
 | Language     | Java 17 |
 | Framework    | Spring Boot 3.4.x, Spring AI 1.0.0 |
-| Chat model   | Any OpenAI-compatible API (`spring-ai-starter-model-openai`) — developed/tested against **Groq** (`llama-3.3-70b-versatile`) |
-| Embeddings   | **Local** ONNX via `spring-ai-starter-model-transformers` (`all-MiniLM-L6-v2`, 384 dims) |
+| Chat model   | Any OpenAI-compatible API (`spring-ai-starter-model-openai`) — deployed against **OpenRouter** free models |
+| Embeddings   | Remote API via the same starter — OpenRouter's free `nvidia/nemotron-3-embed-1b:free` (2048 dims) |
 | Vector store | PostgreSQL 16 + **pgvector** (`spring-ai-starter-vector-store-pgvector`) |
 | PDF parsing  | Spring AI PDF document reader (Apache PDFBox) |
 | Build        | Maven |
@@ -84,20 +88,20 @@ Only the **chat** model needs an API key — and a **free Groq key** is enough.
 
 ## Quick start (Docker Compose — recommended)
 
-You only need a **chat** API key. Get a free one from Groq:
-<https://console.groq.com/keys>
+You need **one** API key for an endpoint that serves both chat completions
+*and* embeddings. A free OpenRouter key works out of the box:
+<https://openrouter.ai/keys> (the compose defaults already point at
+OpenRouter's free models).
 
 ```bash
-OPENAI_API_KEY=gsk_your_groq_key \
-OPENAI_BASE_URL=https://api.groq.com/openai/v1 \
-AI_MODEL=llama-3.3-70b-versatile \
+OPENAI_API_KEY=sk-or-your_openrouter_key \
 docker compose up --build
 ```
 
 Then open **http://localhost:8080**, upload a document and ask a question.
 
-> Using OpenAI instead? Just set `OPENAI_API_KEY=sk-...` and leave the other
-> two variables out (defaults: OpenAI API + `gpt-4o-mini`).
+> Note: chat-only providers without an embeddings endpoint (e.g. Groq) can no
+> longer run this app on their own — embeddings are API calls too.
 
 ## Run locally without Docker
 
@@ -110,9 +114,8 @@ extension available (the app creates the extension/table itself on first run —
 docker compose up -d db
 
 # 2. Run the app
-OPENAI_API_KEY=gsk_your_groq_key \
-OPENAI_BASE_URL=https://api.groq.com/openai/v1 \
-AI_MODEL=llama-3.3-70b-versatile \
+OPENAI_API_KEY=sk-or-your_openrouter_key \
+OPENAI_BASE_URL=https://openrouter.ai/api/v1 \
 mvn spring-boot:run
 ```
 
@@ -120,16 +123,18 @@ mvn spring-boot:run
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `OPENAI_API_KEY` | *(placeholder)* | Chat API key (Groq or OpenAI). App boots without it; chat calls then fail cleanly with 502. |
-| `OPENAI_BASE_URL` | `https://api.openai.com` | Base URL of any OpenAI-compatible chat API. Groq: `https://api.groq.com/openai/v1` |
-| `AI_MODEL` | `gpt-4o-mini` | Chat model name. Groq free tier: `llama-3.3-70b-versatile` |
+| `OPENAI_API_KEY` | *(placeholder)* | API key for chat **and** embeddings (e.g. OpenRouter). App boots without it; AI calls then fail cleanly with 502. |
+| `OPENAI_BASE_URL` | `https://api.openai.com` | Base URL of an OpenAI-compatible API that serves chat + embeddings. OpenRouter: `https://openrouter.ai/api/v1` |
+| `AI_MODEL` | `gpt-4o-mini` | Chat model name |
+| `EMBEDDING_MODEL` | `nvidia/nemotron-3-embed-1b:free` | Embedding model name (free on OpenRouter) |
+| `EMBEDDING_DIMENSIONS` | `2048` | pgvector column size — must match the embedding model's output dimensions |
 | `SPRING_DATASOURCE_URL` | `jdbc:postgresql://localhost:5432/docqa` | PostgreSQL JDBC URL |
 | `SPRING_DATASOURCE_USERNAME` | `docqa` | Database user |
 | `SPRING_DATASOURCE_PASSWORD` | `docqa` | Database password |
 | `PORT` | `8080` | HTTP port |
 
-There is deliberately **no embedding-model variable**: embeddings always run
-locally with `all-MiniLM-L6-v2`.
+Embeddings use the **same** `OPENAI_API_KEY` and `OPENAI_BASE_URL` as chat —
+the app calls `POST {base-url}/embeddings` on the same provider.
 
 ---
 
@@ -183,16 +188,15 @@ is empty — the model is never allowed to guess.
 Any host that runs a Docker image (or a Java 17 jar) plus a PostgreSQL database
 with pgvector works — e.g. Render/Railway/Fly.io for the app and Neon, Supabase
 or a `pgvector/pgvector:pg16` container for the database. Set the environment
-variables from the table above (with your Groq key), make sure `PORT` matches
-what the platform expects, and you're live. The jar is self-contained:
+variables from the table above (with your OpenRouter key), make sure `PORT`
+matches what the platform expects, and you're live. Because embeddings are a
+remote API call, the jar is small and the app fits in 512 MB of RAM — free
+tiers included. The jar is self-contained:
 
 ```bash
 mvn -DskipTests package
 java -jar target/doc-qa-rag-1.0.0.jar
 ```
-
-Remember the first boot downloads the embedding model from Hugging Face, so the
-host needs outbound internet once (or bake the model cache into your image).
 
 ## Project layout
 
@@ -214,4 +218,4 @@ docker-compose.yml                # app + pgvector/pgvector:pg16
 
 ---
 
-Built by **Ayush Garg** — Spring Boot · Spring AI · pgvector · Groq.
+Built by **Ayush Garg** — Spring Boot · Spring AI · pgvector · OpenRouter.

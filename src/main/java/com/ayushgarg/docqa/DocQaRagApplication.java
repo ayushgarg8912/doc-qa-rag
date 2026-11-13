@@ -7,7 +7,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
  * Document Q&A with RAG and GenAI.
  *
  * Upload documents (PDF / TXT / MD), they are split into chunks, embedded
- * locally with a Transformers (ONNX) model and stored in PostgreSQL/pgvector.
+ * via a remote embedding model API and stored in PostgreSQL/pgvector.
  * Questions are answered by an LLM using only the retrieved document chunks
  * (Retrieval-Augmented Generation).
  */

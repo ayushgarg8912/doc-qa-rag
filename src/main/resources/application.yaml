@@ -18,29 +18,40 @@ spring:
 
   ai:
     model:
-      # Chat comes from the OpenAI-compatible API (OpenAI, Groq, ...).
+      # Both chat and embeddings come from the OpenAI-compatible API
+      # (one key, one base URL — see below).
       chat: openai
-      # Embeddings are computed locally by the Transformers (ONNX) model,
-      # so no embedding API / key is required (Groq has no embeddings API).
-      embedding: transformers
+      embedding: openai
 
     openai:
-      # Point this at any OpenAI-compatible endpoint, e.g. Groq:
-      #   OPENAI_BASE_URL=https://api.groq.com/openai/v1
+      # Point this at an OpenAI-compatible endpoint that serves BOTH chat
+      # completions and embeddings, e.g. OpenRouter:
+      #   OPENAI_BASE_URL=https://openrouter.ai/api/v1
       base-url: ${OPENAI_BASE_URL:https://api.openai.com}
       # Placeholder default lets the app start (and /api/health work) without a key;
-      # chat calls will fail cleanly with a 502 until a real key is provided.
+      # AI calls will fail cleanly with a 502 until a real key is provided.
       api-key: ${OPENAI_API_KEY:demo-key-not-set}
       chat:
+        # Spring AI 1.0.0's default completions path is /v1/chat/completions,
+        # which would double the /v1 when the base URL already ends in /v1
+        # (e.g. OpenRouter). Pin the version-relative path instead.
+        completions-path: /chat/completions
         options:
           model: ${AI_MODEL:gpt-4o-mini}
           temperature: 0.3
+      embedding:
+        # Same double-/v1 issue as chat: the 1.0.0 default embeddings path
+        # is /v1/embeddings, so pin the version-relative path.
+        embeddings-path: /embeddings
+        options:
+          # Free NVIDIA Nemotron embedding model on OpenRouter (2048 dims).
+          model: ${EMBEDDING_MODEL:nvidia/nemotron-3-embed-1b:free}
 
     vectorstore:
       pgvector:
         initialize-schema: true
-        # all-MiniLM-L6-v2 (Transformers) produces 384-dimensional vectors.
-        dimensions: 384
+        # Must match the embedding model's output size (Nemotron embed = 2048).
+        dimensions: ${EMBEDDING_DIMENSIONS:2048}
         index-type: HNSW
         distance-type: COSINE_DISTANCE
 

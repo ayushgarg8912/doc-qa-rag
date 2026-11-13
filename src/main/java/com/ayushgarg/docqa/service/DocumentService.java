@@ -25,7 +25,7 @@ import java.util.UUID;
 
 /**
  * Ingestion pipeline: parse an uploaded file, split it into chunks, embed
- * the chunks with the local Transformers embedding model and store them in
+ * the chunks with the configured embedding model API and store them in
  * PgVector with file-name / document-id metadata.
  */
 @Service

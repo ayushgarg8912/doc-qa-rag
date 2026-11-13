@@ -1,7 +1,7 @@
 # Runs the whole stack: the Spring Boot app + PostgreSQL with pgvector.
 #
-#   # Chat via Groq's free tier (embeddings are local and need no key):
-#   OPENAI_API_KEY=gsk_... OPENAI_BASE_URL=https://api.groq.com/openai/v1 AI_MODEL=llama-3.3-70b-versatile docker compose up --build
+#   # Chat AND embeddings via OpenRouter (one key; free models by default):
+#   OPENAI_API_KEY=sk-or-... docker compose up --build
 #
 # Then open http://localhost:8080
 services:
@@ -27,11 +27,13 @@ services:
       db:
         condition: service_healthy
     environment:
-      # Chat model: any OpenAI-compatible API. Defaults work with OpenAI;
-      # override the three values to use Groq (free) or another provider.
+      # One OpenAI-compatible API serves both chat and embeddings.
+      # Defaults target OpenRouter's free models (an OpenRouter key is
+      # required); override to use another provider that offers embeddings.
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://openrouter.ai/api/v1}
       AI_MODEL: ${AI_MODEL:-gpt-4o-mini}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-nvidia/nemotron-3-embed-1b:free}
       SPRING_DATASOURCE_URL: jdbc:postgresql://db:5432/docqa
       SPRING_DATASOURCE_USERNAME: docqa
       SPRING_DATASOURCE_PASSWORD: docqa
